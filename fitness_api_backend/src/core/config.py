@@ -1,10 +1,67 @@
 from __future__ import annotations
 
+import json
 from functools import lru_cache
 from typing import List, Optional
 
 from pydantic import Field, ConfigDict, AnyUrl, HttpUrl
 from pydantic_settings import BaseSettings
+
+
+def _parse_list_like(value: object) -> List[str]:
+    """
+    Safely parse list-like configuration values coming from environment variables.
+
+    Supports:
+      - JSON arrays (e.g., '["*"]', '["http://a","https://b"]')
+      - Comma-separated strings (e.g., 'http://a, https://b , *')
+      - Empty strings or None -> []
+      - Already-typed lists -> list[str] with str-cast and trimming
+
+    Never raises on invalid JSON; falls back to comma-splitting. Ensures all
+    items are unique, trimmed strings, and skips empty items.
+    """
+    if value is None:
+        return []
+
+    # If already a list/tuple, coerce to cleaned list[str]
+    if isinstance(value, (list, tuple, set)):
+        cleaned: List[str] = []
+        seen = set()
+        for item in value:
+            s = str(item).strip()
+            if s and s not in seen:
+                cleaned.append(s)
+                seen.add(s)
+        return cleaned
+
+    if isinstance(value, str):
+        s = value.strip()
+        if s == "":
+            return []
+        # Try JSON array first
+        try:
+            parsed = json.loads(s)
+            if isinstance(parsed, (list, tuple)):
+                return _parse_list_like(parsed)
+            # If JSON is valid but not an array (e.g., string), fall through to CSV handling
+        except json.JSONDecodeError:
+            pass
+
+        # Fallback: comma-separated values
+        parts = [p.strip() for p in s.split(",")]
+        cleaned = [p for p in parts if p]
+        # Deduplicate while preserving order
+        unique: List[str] = []
+        seen = set()
+        for item in cleaned:
+            if item not in seen:
+                unique.append(item)
+                seen.add(item)
+        return unique
+
+    # Unknown type, cast to string and attempt CSV style
+    return _parse_list_like(str(value))
 
 
 class Settings(BaseSettings):
@@ -36,6 +93,8 @@ class Settings(BaseSettings):
     )
 
     # CORS (primary used by app)
+    # Accept raw env values which could be JSON arrays or comma separated strings. We keep type as List[str]
+    # so pydantic will coerce JSON lists when valid, and our helper will handle empty/non-JSON gracefully.
     CORS_ORIGINS: List[str] = Field(
         default_factory=lambda: ["*"],
         description="Allowed origins for CORS; use specific origins in production",
@@ -107,17 +166,46 @@ class Settings(BaseSettings):
         default=100, description="Maximum requests per window per client (if used)"
     )
 
-    # Back-compat aliases mapping: if CORS_ORIGINS is not explicitly set, derive from allowed_origins
+    # PUBLIC_INTERFACE
     def get_cors_origins(self) -> List[str]:
         """
         Provide a unified CORS origins list prioritizing CORS_ORIGINS.
-        Falls back to allowed_origins if CORS_ORIGINS is left default and allowed_origins differs.
+
+        Supports env inputs that may be JSON arrays, comma-separated strings, or empty strings.
+        Falls back to allowed_origins if CORS_ORIGINS is effectively default and allowed_origins differs.
+
+        Returns:
+            List[str]: computed origins list for FastAPI CORSMiddleware.
         """
-        if self.CORS_ORIGINS and self.CORS_ORIGINS != ["*"]:
-            return self.CORS_ORIGINS
-        if self.allowed_origins and self.allowed_origins != ["*"]:
-            return self.allowed_origins
-        return self.CORS_ORIGINS
+        # Parse both fields robustly to handle empty/non-JSON env values from DotEnvSettingsSource
+        cors_origins = _parse_list_like(self.CORS_ORIGINS)
+        allowed_origins = _parse_list_like(self.allowed_origins)
+
+        # If explicit CORS_ORIGINS provided (not empty and not ["*"] by intention), prefer it
+        if cors_origins and cors_origins != ["*"]:
+            return cors_origins
+
+        # Else, if allowed_origins provided specifically, use it
+        if allowed_origins and allowed_origins != ["*"]:
+            return allowed_origins
+
+        # Default permissive wildcard for local/dev
+        return cors_origins or ["*"]
+
+    # Convenience helpers for headers and methods in case future code needs them
+    def get_cors_headers(self) -> List[str]:
+        """
+        Return parsed allowed headers list with robust handling of env formats.
+        """
+        headers = _parse_list_like(self.allowed_headers)
+        return headers or ["*"]
+
+    def get_cors_methods(self) -> List[str]:
+        """
+        Return parsed allowed methods list with robust handling of env formats.
+        """
+        methods = _parse_list_like(self.allowed_methods)
+        return methods or ["*"]
 
 
 # PUBLIC_INTERFACE
@@ -129,5 +217,10 @@ def get_settings() -> Settings:
     Notes:
         Unknown environment variables are ignored (extra='ignore') to prevent
         Pydantic Settings ValidationError when non-modeled keys are provided.
+
+    Security:
+        Do not print or log the settings contents to avoid leaking secrets.
     """
+    # Instantiate Settings; pydantic-settings may fetch raw strings from env.
+    # Our accessors (get_cors_*) will handle robust parsing on use.
     return Settings()
