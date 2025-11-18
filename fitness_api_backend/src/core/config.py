@@ -185,7 +185,7 @@ class Settings(BaseSettings):
         """
         Provide a unified CORS origins list prioritizing CORS_ORIGINS.
 
-        Supports env inputs that may be JSON arrays, comma-separated strings, or empty strings.
+        Supports env inputs that may be JSON arrays, comma-separated strings, or empty/whitespace-only strings.
         Falls back to allowed_origins if CORS_ORIGINS is effectively default and allowed_origins differs.
 
         Returns:
@@ -196,29 +196,39 @@ class Settings(BaseSettings):
 
         # If explicit CORS_ORIGINS provided (not empty and not ["*"] by intention), prefer it
         if cors_origins and cors_origins != ["*"]:
-            return cors_origins
+            return list(cors_origins)
 
         # Else, if allowed_origins provided specifically, use it
         if allowed_origins and allowed_origins != ["*"]:
-            return allowed_origins
+            return list(allowed_origins)
 
         # Safe default permissive wildcard for local/dev
-        return cors_origins or ["*"]
+        return list(cors_origins or ["*"])
 
     # Convenience helpers for headers and methods
+    # PUBLIC_INTERFACE
     def get_cors_headers(self) -> List[str]:
         """
-        Return parsed allowed headers list with robust handling of env formats.
+        Return parsed allowed headers list with robust handling of env formats,
+        including empty and whitespace-only strings which resolve to [] and then default to ["*"].
+
+        Returns:
+            List[str]: list of headers allowed by CORS middleware.
         """
         headers = _parse_list_like(self.allowed_headers)
-        return headers or ["*"]
+        return list(headers or ["*"])
 
+    # PUBLIC_INTERFACE
     def get_cors_methods(self) -> List[str]:
         """
-        Return parsed allowed methods list with robust handling of env formats.
+        Return parsed allowed methods list with robust handling of env formats,
+        including empty and whitespace-only strings which resolve to [] and then default to ["*"].
+
+        Returns:
+            List[str]: list of HTTP methods allowed by CORS middleware.
         """
         methods = _parse_list_like(self.allowed_methods)
-        return methods or ["*"]
+        return list(methods or ["*"])
 
 
 # PUBLIC_INTERFACE

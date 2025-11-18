@@ -27,12 +27,19 @@ app = FastAPI(
 )
 
 # Configure CORS using settings (prefer explicit CORS_ORIGINS but allow compat)
+# Using the robust getters avoids JSONDecodeError when env/.env provides empty strings,
+# whitespace-only values, CSV lists, or JSON arrays for allowed origins/headers/methods.
+_computed_cors = {
+    "origins": settings.get_cors_origins(),
+    "methods": settings.get_cors_methods(),
+    "headers": settings.get_cors_headers(),
+}
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.get_cors_origins(),
+    allow_origins=_computed_cors["origins"],
     allow_credentials=True,
-    allow_methods=settings.get_cors_methods(),
-    allow_headers=settings.get_cors_headers(),
+    allow_methods=_computed_cors["methods"],
+    allow_headers=_computed_cors["headers"],
     max_age=settings.cors_max_age,
 )
 
