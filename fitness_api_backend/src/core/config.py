@@ -167,7 +167,13 @@ class Settings(BaseSettings):
     )
 
     # Validators to ensure robust parsing when env provides strings (including empty)
-    @field_validator("CORS_ORIGINS", "allowed_origins", "allowed_headers", "allowed_methods", mode="before")
+    @field_validator(
+        "CORS_ORIGINS",
+        "allowed_origins",
+        "allowed_headers",
+        "allowed_methods",
+        mode="before",
+    )
     @classmethod
     def _coerce_list_env(cls, v: Any) -> Any:
         """
@@ -246,3 +252,39 @@ def get_settings() -> Settings:
         Do not print or log the settings contents to avoid leaking secrets.
     """
     return Settings()
+
+
+# Optional self-test utility. Does not execute on import.
+def _self_test_parse_examples() -> None:
+    """
+    Simple sanity checks for the list-like parser. This function is not called
+    automatically to avoid side effects during module import.
+    """
+    samples = [
+        None,
+        "",
+        "   ",
+        "http://a.com",
+        "http://a.com, https://b.com , *",
+        '["https://x.com","https://y.com"]',
+        "[invalid,json",
+        ["one", "two", "two", "   "],
+    ]
+    for sample in samples:
+        result = _parse_list_like(sample)
+        assert isinstance(result, list)
+        # Ensure trimming and no empty strings
+        assert all(isinstance(x, str) and x.strip() != "" for x in result)
+    # No exception means pass.
+
+
+if __name__ == "__main__":
+    # Manual run: python -m src.core.config
+    # Provides a basic smoke test for parsing behavior and settings load.
+    _self_test_parse_examples()
+    s = get_settings()
+    # Print minimal, non-sensitive info
+    print("Self-test OK.")
+    print(f"CORS_ORIGINS: {s.get_cors_origins()}")
+    print(f"CORS_METHODS: {s.get_cors_methods()}")
+    print(f"CORS_HEADERS: {s.get_cors_headers()}")
