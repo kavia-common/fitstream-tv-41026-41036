@@ -41,13 +41,14 @@ def _parse_list_like(value: object) -> List[str]:
             # Empty or whitespace-only -> []
             return []
         # Try JSON array first only if string appears to be a JSON array
-        if s.startswith("[") and s.endswith("]"):
+        if s.startswith("["):
+            # Only attempt JSON parsing for array-like inputs, never for empty/whitespace.
             try:
                 parsed = json.loads(s)
                 if isinstance(parsed, (list, tuple)):
                     return _parse_list_like(parsed)
             except json.JSONDecodeError:
-                # If JSON invalid, fall through to CSV parsing
+                # If JSON invalid or not an array, fall through to CSV parsing
                 pass
 
         # Fallback: comma-separated values
@@ -170,14 +171,13 @@ class Settings(BaseSettings):
     @classmethod
     def _coerce_list_env(cls, v: Any) -> Any:
         """
-        Coerce environment-provided values for list fields into list[str].
+        Before-validator for list-like CORS fields.
 
-        Handles:
-          - None or empty/whitespace strings -> []
-          - JSON arrays -> parsed list
-          - CSV strings -> list
-          - Already lists/tuples/sets -> normalized list[str]
-        Ensures we never call json.loads on empty strings.
+        Behavior:
+          - Returns [] for None, empty string, or whitespace-only values.
+          - If input begins with '[', attempt JSON parsing; on failure, fallback to CSV.
+          - Otherwise splits by comma and strips whitespace.
+        Always returns List[str] and never raises JSONDecodeError for empty/whitespace inputs.
         """
         return _parse_list_like(v)
 
