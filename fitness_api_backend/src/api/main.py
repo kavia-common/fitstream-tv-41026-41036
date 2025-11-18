@@ -29,6 +29,7 @@ app = FastAPI(
 # Configure CORS using settings (prefer explicit CORS_ORIGINS but allow compat)
 # Using the robust getters avoids JSONDecodeError when env/.env provides empty strings,
 # whitespace-only values, CSV lists, or JSON arrays for allowed origins/headers/methods.
+# IMPORTANT: Do not access raw env values directly; always use the Settings getters.
 _computed_cors = {
     "origins": settings.get_cors_origins(),
     "methods": settings.get_cors_methods(),
@@ -56,7 +57,12 @@ def _on_startup():
     init_db(create_all=True)
 
 
-@app.get("/", tags=["health"], summary="Health Check", description="Simple service health check endpoint that returns a static payload.")
+@app.get(
+    "/",
+    tags=["health"],
+    summary="Health Check",
+    description="Simple service health check endpoint that returns a static payload.",
+)
 def health_check():
     """
     Health check endpoint to verify the service is operational.

@@ -20,6 +20,10 @@ def _parse_list_like(value: object) -> List[str]:
 
     Never raises on invalid JSON; falls back to comma-splitting. Ensures all
     items are unique, trimmed strings, and skips empty items.
+
+    SECURITY NOTE:
+    - Never call json.loads on None or whitespace-only strings.
+    - Attempt json.loads only when the string looks like a JSON array (starts with '[').
     """
     if value is None:
         return []
@@ -183,7 +187,9 @@ class Settings(BaseSettings):
           - Returns [] for None, empty string, or whitespace-only values.
           - If input begins with '[', attempt JSON parsing; on failure, fallback to CSV.
           - Otherwise splits by comma and strips whitespace.
-        Always returns List[str] and never raises JSONDecodeError for empty/whitespace inputs.
+
+        Always returns List[str] and never raises JSONDecodeError. Empty/whitespace
+        env values produce [] here and are later defaulted to a safe list by the getters.
         """
         return _parse_list_like(v)
 
