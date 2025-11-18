@@ -15,8 +15,8 @@ def _parse_list_like(value: object) -> List[str]:
     Supports:
       - JSON arrays (e.g., '["*"]', '["http://a","https://b"]')
       - Comma-separated strings (e.g., 'http://a, https://b , *')
-      - Empty strings or None -> []
-      - Already-typed lists -> list[str] with str-cast and trimming
+      - Empty strings, whitespace-only strings, or None -> []
+      - Already-typed iterables -> list[str] with str-cast and trimming
 
     Never raises on invalid JSON; falls back to comma-splitting. Ensures all
     items are unique, trimmed strings, and skips empty items.
@@ -24,7 +24,7 @@ def _parse_list_like(value: object) -> List[str]:
     if value is None:
         return []
 
-    # If already a list/tuple, coerce to cleaned list[str]
+    # If already a list/tuple/set, coerce to cleaned list[str]
     if isinstance(value, (list, tuple, set)):
         cleaned: List[str] = []
         seen = set()
@@ -38,6 +38,7 @@ def _parse_list_like(value: object) -> List[str]:
     if isinstance(value, str):
         s = value.strip()
         if s == "":
+            # Empty or whitespace-only -> []
             return []
         # Try JSON array first only if string appears to be a JSON array
         if s.startswith("[") and s.endswith("]"):
@@ -172,13 +173,13 @@ class Settings(BaseSettings):
         Coerce environment-provided values for list fields into list[str].
 
         Handles:
-          - None or "" -> []
+          - None or empty/whitespace strings -> []
           - JSON arrays -> parsed list
           - CSV strings -> list
           - Already lists/tuples/sets -> normalized list[str]
+        Ensures we never call json.loads on empty strings.
         """
-        parsed = _parse_list_like(v)
-        return parsed
+        return _parse_list_like(v)
 
     # PUBLIC_INTERFACE
     def get_cors_origins(self) -> List[str]:
@@ -192,15 +193,15 @@ class Settings(BaseSettings):
             List[str]: computed origins list for FastAPI CORSMiddleware.
         """
         cors_origins = _parse_list_like(self.CORS_ORIGINS)
-        allowed_origins = _parse_list_like(self.allowed_origins)
+        allowed = _parse_list_like(self.allowed_origins)
 
         # If explicit CORS_ORIGINS provided (not empty and not ["*"] by intention), prefer it
         if cors_origins and cors_origins != ["*"]:
             return list(cors_origins)
 
         # Else, if allowed_origins provided specifically, use it
-        if allowed_origins and allowed_origins != ["*"]:
-            return list(allowed_origins)
+        if allowed and allowed != ["*"]:
+            return list(allowed)
 
         # Safe default permissive wildcard for local/dev
         return list(cors_origins or ["*"])
