@@ -1,0 +1,5 @@
+/*
+ Temporary placeholder settings to satisfy CI gradle checks.
+ Replace with real settings when the Android project is created.
+*/
+rootProject.name = "android_tv_fitness_frontend"

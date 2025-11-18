@@ -25,10 +25,11 @@ def _parse_list_like(value: object) -> List[str]:
     - Never call json.loads on None or whitespace-only strings.
     - Attempt json.loads only when the string looks like a JSON array (starts with '[').
     """
+    # Treat None as empty list
     if value is None:
         return []
 
-    # If already a list/tuple/set, coerce to cleaned list[str]
+    # If already an iterable of items (excluding str/bytes), coerce to cleaned list[str]
     if isinstance(value, (list, tuple, set)):
         cleaned: List[str] = []
         seen = set()
@@ -39,26 +40,26 @@ def _parse_list_like(value: object) -> List[str]:
                 seen.add(s)
         return cleaned
 
+    # If it's a string-like input
     if isinstance(value, str):
         s = value.strip()
         if s == "":
             # Empty or whitespace-only -> []
             return []
-        # Try JSON array first only if string appears to be a JSON array
+        # JSON array attempt if it appears to be a JSON array
         if s.startswith("["):
-            # Only attempt JSON parsing for array-like inputs, never for empty/whitespace.
             try:
                 parsed = json.loads(s)
                 if isinstance(parsed, (list, tuple)):
+                    # Recurse to normalize items to strings, trim, and dedupe
                     return _parse_list_like(parsed)
-            except json.JSONDecodeError:
-                # If JSON invalid or not an array, fall through to CSV parsing
+            except Exception:
+                # Swallow any JSON errors and fall back to CSV parsing
                 pass
 
-        # Fallback: comma-separated values
+        # Fallback: CSV by comma
         parts = [p.strip() for p in s.split(",")]
         cleaned = [p for p in parts if p]
-        # Deduplicate while preserving order
         unique: List[str] = []
         seen = set()
         for item in cleaned:
@@ -67,7 +68,7 @@ def _parse_list_like(value: object) -> List[str]:
                 seen.add(item)
         return unique
 
-    # Unknown type, cast to string and attempt CSV style
+    # Unknown type: cast to str and parse as CSV
     return _parse_list_like(str(value))
 
 
@@ -185,7 +186,7 @@ class Settings(BaseSettings):
 
         Behavior:
           - Returns [] for None, empty string, or whitespace-only values.
-          - If input begins with '[', attempt JSON parsing; on failure, fallback to CSV.
+          - If input begins with '[', attempt JSON parsing with try/except; on failure, fallback to CSV.
           - Otherwise splits by comma and strips whitespace.
 
         Always returns List[str] and never raises JSONDecodeError. Empty/whitespace
