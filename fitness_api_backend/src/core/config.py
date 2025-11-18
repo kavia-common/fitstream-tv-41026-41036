@@ -4,7 +4,7 @@ import json
 from functools import lru_cache
 from typing import List, Optional, Any
 
-from pydantic import Field, ConfigDict, AnyUrl, HttpUrl, field_validator
+from pydantic import Field, ConfigDict, AnyUrl, HttpUrl, field_validator, AliasChoices
 from pydantic_settings import BaseSettings
 
 
@@ -102,9 +102,11 @@ class Settings(BaseSettings):
 
     # CORS (primary used by app)
     # Accept raw env values which could be JSON arrays or comma separated strings.
-    CORS_ORIGINS: List[str] = Field(
+    # Note: type is Any to avoid Pydantic pre-parsing errors; coerced via validator.
+    CORS_ORIGINS: Any = Field(
         default_factory=lambda: ["*"],
         description="Allowed origins for CORS; use specific origins in production",
+        validation_alias=AliasChoices("CORS_ORIGINS", "cors_origins"),
     )
 
     # Compat/common environment variables often present in deployments.
@@ -122,53 +124,82 @@ class Settings(BaseSettings):
     )
 
     # Common aliases used in various deployments
-    allowed_origins: List[str] = Field(
+    # Note: type is Any to avoid Pydantic pre-parsing errors; coerced via validator.
+    allowed_origins: Any = Field(
         default_factory=lambda: ["*"],
         description="Alias/compat: allowed origins list (lowercase key).",
+        validation_alias=AliasChoices("allowed_origins", "ALLOWED_ORIGINS"),
     )
-    allowed_headers: List[str] = Field(
+    # Note: type is Any to avoid Pydantic pre-parsing errors; coerced via validator.
+    allowed_headers: Any = Field(
         default_factory=lambda: ["*"],
         description="Alias/compat: allowed headers list.",
+        validation_alias=AliasChoices("allowed_headers", "ALLOWED_HEADERS"),
     )
-    allowed_methods: List[str] = Field(
+    # Note: type is Any to avoid Pydantic pre-parsing errors; coerced via validator.
+    allowed_methods: Any = Field(
         default_factory=lambda: ["*"],
         description="Alias/compat: allowed methods list.",
+        validation_alias=AliasChoices("allowed_methods", "ALLOWED_METHODS"),
     )
     cors_max_age: int = Field(
         default=600,
         description="Alias/compat: CORS preflight cache max age seconds.",
+        validation_alias=AliasChoices("cors_max_age", "CORS_MAX_AGE"),
     )
     cookie_domain: Optional[str] = Field(
-        default=None, description="Domain to set on cookies if needed (e.g., .example.com)"
+        default=None,
+        description="Domain to set on cookies if needed (e.g., .example.com)",
+        validation_alias=AliasChoices("cookie_domain", "COOKIE_DOMAIN"),
     )
     trust_proxy: bool = Field(
         default=False,
         description="Whether the app trusts proxy headers like X-Forwarded-For/Proto.",
+        validation_alias=AliasChoices("trust_proxy", "TRUST_PROXY"),
     )
 
     # Server/runtime hints
-    host: str = Field(default="0.0.0.0", description="App host bind for internal use")
+    host: str = Field(
+        default="0.0.0.0",
+        description="App host bind for internal use",
+        validation_alias=AliasChoices("host", "HOST"),
+    )
     uvicorn_host: str = Field(
-        default="0.0.0.0", description="Host for uvicorn when starting server"
+        default="0.0.0.0",
+        description="Host for uvicorn when starting server",
+        validation_alias=AliasChoices("uvicorn_host", "UVICORN_HOST"),
     )
     uvicorn_workers: int = Field(
-        default=1, description="Number of workers for uvicorn/gunicorn"
+        default=1,
+        description="Number of workers for uvicorn/gunicorn",
+        validation_alias=AliasChoices("uvicorn_workers", "UVICORN_WORKERS"),
     )
-    port: int = Field(default=8000, description="Port to bind the server to")
+    port: int = Field(
+        default=8000,
+        description="Port to bind the server to",
+        validation_alias=AliasChoices("port", "PORT"),
+    )
     node_env: str = Field(
         default="development",
         description="Environment name hint often used by frontends (development/production).",
+        validation_alias=AliasChoices("node_env", "NODE_ENV"),
     )
 
     # Request/limits
     request_timeout_ms: int = Field(
-        default=30000, description="Default request timeout in milliseconds"
+        default=30000,
+        description="Default request timeout in milliseconds",
+        validation_alias=AliasChoices("request_timeout_ms", "REQUEST_TIMEOUT_MS"),
     )
     rate_limit_window_s: int = Field(
-        default=60, description="Rate limit window seconds (if used by middleware)"
+        default=60,
+        description="Rate limit window seconds (if used by middleware)",
+        validation_alias=AliasChoices("rate_limit_window_s", "RATE_LIMIT_WINDOW_S"),
     )
     rate_limit_max: int = Field(
-        default=100, description="Maximum requests per window per client (if used)"
+        default=100,
+        description="Maximum requests per window per client (if used)",
+        validation_alias=AliasChoices("rate_limit_max", "RATE_LIMIT_MAX"),
     )
 
     # Validators to ensure robust parsing when env provides strings (including empty)
@@ -180,7 +211,7 @@ class Settings(BaseSettings):
         mode="before",
     )
     @classmethod
-    def _coerce_list_env(cls, v: Any) -> Any:
+    def _coerce_list_env(cls, v: Any) -> List[str]:
         """
         Before-validator for list-like CORS fields.
 
