@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import json
 from functools import lru_cache
-from typing import List, Optional
+from typing import List, Optional, Any
 
-from pydantic import Field, ConfigDict, AnyUrl, HttpUrl
+from pydantic import Field, ConfigDict, AnyUrl, HttpUrl, field_validator
 from pydantic_settings import BaseSettings
 
 
@@ -39,14 +39,15 @@ def _parse_list_like(value: object) -> List[str]:
         s = value.strip()
         if s == "":
             return []
-        # Try JSON array first
-        try:
-            parsed = json.loads(s)
-            if isinstance(parsed, (list, tuple)):
-                return _parse_list_like(parsed)
-            # If JSON is valid but not an array (e.g., string), fall through to CSV handling
-        except json.JSONDecodeError:
-            pass
+        # Try JSON array first only if string appears to be a JSON array
+        if s.startswith("[") and s.endswith("]"):
+            try:
+                parsed = json.loads(s)
+                if isinstance(parsed, (list, tuple)):
+                    return _parse_list_like(parsed)
+            except json.JSONDecodeError:
+                # If JSON invalid, fall through to CSV parsing
+                pass
 
         # Fallback: comma-separated values
         parts = [p.strip() for p in s.split(",")]
@@ -93,17 +94,13 @@ class Settings(BaseSettings):
     )
 
     # CORS (primary used by app)
-    # Accept raw env values which could be JSON arrays or comma separated strings. We keep type as List[str]
-    # so pydantic will coerce JSON lists when valid, and our helper will handle empty/non-JSON gracefully.
+    # Accept raw env values which could be JSON arrays or comma separated strings.
     CORS_ORIGINS: List[str] = Field(
         default_factory=lambda: ["*"],
         description="Allowed origins for CORS; use specific origins in production",
     )
 
     # Compat/common environment variables often present in deployments.
-    # They are optional and used by other tooling; defined here to avoid extra-key errors
-    # and to provide typed, safe defaults. The app currently doesn't require them, but
-    # exposing them enables future use and prevents Settings ValidationError.
     backend_url: Optional[HttpUrl] = Field(
         default=None, description="Public base URL for backend (if provided by env)"
     )
@@ -117,6 +114,7 @@ class Settings(BaseSettings):
         default=None, description="WebSocket base URL (ws:// or wss://) if provided"
     )
 
+    # Common aliases used in various deployments
     allowed_origins: List[str] = Field(
         default_factory=lambda: ["*"],
         description="Alias/compat: allowed origins list (lowercase key).",
@@ -166,6 +164,22 @@ class Settings(BaseSettings):
         default=100, description="Maximum requests per window per client (if used)"
     )
 
+    # Validators to ensure robust parsing when env provides strings (including empty)
+    @field_validator("CORS_ORIGINS", "allowed_origins", "allowed_headers", "allowed_methods", mode="before")
+    @classmethod
+    def _coerce_list_env(cls, v: Any) -> Any:
+        """
+        Coerce environment-provided values for list fields into list[str].
+
+        Handles:
+          - None or "" -> []
+          - JSON arrays -> parsed list
+          - CSV strings -> list
+          - Already lists/tuples/sets -> normalized list[str]
+        """
+        parsed = _parse_list_like(v)
+        return parsed
+
     # PUBLIC_INTERFACE
     def get_cors_origins(self) -> List[str]:
         """
@@ -177,7 +191,6 @@ class Settings(BaseSettings):
         Returns:
             List[str]: computed origins list for FastAPI CORSMiddleware.
         """
-        # Parse both fields robustly to handle empty/non-JSON env values from DotEnvSettingsSource
         cors_origins = _parse_list_like(self.CORS_ORIGINS)
         allowed_origins = _parse_list_like(self.allowed_origins)
 
@@ -189,10 +202,10 @@ class Settings(BaseSettings):
         if allowed_origins and allowed_origins != ["*"]:
             return allowed_origins
 
-        # Default permissive wildcard for local/dev
+        # Safe default permissive wildcard for local/dev
         return cors_origins or ["*"]
 
-    # Convenience helpers for headers and methods in case future code needs them
+    # Convenience helpers for headers and methods
     def get_cors_headers(self) -> List[str]:
         """
         Return parsed allowed headers list with robust handling of env formats.
@@ -221,6 +234,4 @@ def get_settings() -> Settings:
     Security:
         Do not print or log the settings contents to avoid leaking secrets.
     """
-    # Instantiate Settings; pydantic-settings may fetch raw strings from env.
-    # Our accessors (get_cors_*) will handle robust parsing on use.
     return Settings()
